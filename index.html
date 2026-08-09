@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Orbital Playground</title>
+
+<style>
+    * {
+        box-sizing: border-box;
+    }
+
+    html,
+    body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #07090f;
+        color: #f5f7ff;
+        font-family: system-ui, sans-serif;
+    }
+
+    canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        cursor: crosshair;
+    }
+
+    .info {
+        position: fixed;
+        top: 24px;
+        left: 24px;
+        pointer-events: none;
+        user-select: none;
+    }
+
+    .title {
+        margin: 0 0 6px;
+        font-size: 1.15rem;
+        font-weight: 600;
+        letter-spacing: .04em;
+    }
+
+    .description {
+        margin: 0;
+        color: rgba(255,255,255,.58);
+        font-size: .82rem;
+        line-height: 1.6;
+    }
+
+    .counter {
+        position: fixed;
+        right: 24px;
+        bottom: 22px;
+        color: rgba(255,255,255,.45);
+        font-size: .75rem;
+        font-variant-numeric: tabular-nums;
+        pointer-events: none;
+    }
+</style>
+</head>
+
+<body>
+
+<div class="info">
+    <p class="title">Orbital Playground</p>
+    <p class="description">
+        Click anywhere to launch something.<br>
+        R to clear · Space to pause
+    </p>
+</div>
+
+<div class="counter" id="counter">0 objects</div>
+
+<canvas id="canvas"></canvas>
+
+<script>
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const counter = document.getElementById("counter");
+
+let width;
+let height;
+let dpr;
+
+let bodies = [];
+let paused = false;
+
+const planet = {
+    x: 0,
+    y: 0,
+    radius: 48,
+    mass: 2100
+};
+
+function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+    width = window.innerWidth;
+    height = window.innerHeight;
+
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    planet.x = width / 2;
+    planet.y = height / 2;
+}
+
+window.addEventListener("resize", resize);
+resize();
+
+class Body {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+
+        const dx = x - planet.x;
+        const dy = y - planet.y;
+        const distance = Math.hypot(dx, dy);
+
+        const tangentX = -dy / distance;
+        const tangentY = dx / distance;
+
+        const orbitalSpeed =
+            Math.sqrt(planet.mass / Math.max(distance, 1));
+
+        const variation = 0.45 + Math.random() * 1.2;
+
+        this.vx = tangentX * orbitalSpeed * variation;
+        this.vy = tangentY * orbitalSpeed * variation;
+
+        this.radius = 1.5 + Math.random() * 2.5;
+
+        this.life = 1;
+
+        this.hue = Math.floor(Math.random() * 360);
+
+        this.trail = [];
+    }
+
+    update() {
+        const dx = planet.x - this.x;
+        const dy = planet.y - this.y;
+
+        const distanceSq = dx * dx + dy * dy;
+        const distance = Math.sqrt(distanceSq);
+
+        if (distance < planet.radius) {
+            this.life = 0;
+            return;
+        }
+
+        const force = planet.mass / distanceSq;
+
+        this.vx += force * dx / distance;
+        this.vy += force * dy / distance;
+
+        this.x += this.vx;
+        this.y += this.vy;
+
+        this.trail.push({
+            x: this.x,
+            y: this.y
+        });
+
+        if (this.trail.length > 80) {
+            this.trail.shift();
+        }
+
+        if (
+            this.x < -400 ||
+            this.x > width + 400 ||
+            this.y < -400 ||
+            this.y > height + 400
+        ) {
+            this.life = 0;
+        }
+    }
+
+    draw() {
+        if (this.trail.length > 1) {
+            ctx.beginPath();
+
+            for (let i = 0; i < this.trail.length; i++) {
+                const p = this.trail[i];
+
+                if (i === 0) {
+                    ctx.moveTo(p.x, p.y);
+                } else {
+                    ctx.lineTo(p.x, p.y);
+                }
+            }
+
+            ctx.strokeStyle =
+                `hsla(${this.hue}, 75%, 70%, .18)`;
+
+            ctx.lineWidth = 1;
+            ctx.stroke();
+        }
+
+        ctx.beginPath();
+        ctx.arc(
+            this.x,
+            this.y,
+            this.radius,
+            0,
+            Math.PI * 2
+        );
+
+        ctx.fillStyle =
+            `hsl(${this.hue}, 80%, 72%)`;
+
+        ctx.fill();
+    }
+}
+
+function drawStars() {
+    const spacing = 90;
+
+    ctx.fillStyle = "rgba(255,255,255,.08)";
+
+    for (let x = 30; x < width; x += spacing) {
+        for (let y = 30; y < height; y += spacing) {
+            const offset =
+                Math.sin(x * 0.021 + y * 0.016) * 18;
+
+            ctx.beginPath();
+            ctx.arc(
+                x + offset,
+                y - offset * .5,
+                1,
+                0,
+                Math.PI * 2
+            );
+            ctx.fill();
+        }
+    }
+}
+
+function drawPlanet() {
+    const glow =
+        ctx.createRadialGradient(
+            planet.x,
+            planet.y,
+            planet.radius,
+            planet.x,
+            planet.y,
+            planet.radius * 3
+        );
+
+    glow.addColorStop(
+        0,
+        "rgba(110,160,255,.22)"
+    );
+
+    glow.addColorStop(
+        1,
+        "rgba(110,160,255,0)"
+    );
+
+    ctx.fillStyle = glow;
+
+    ctx.beginPath();
+    ctx.arc(
+        planet.x,
+        planet.y,
+        planet.radius * 3,
+        0,
+        Math.PI * 2
+    );
+    ctx.fill();
+
+    const gradient =
+        ctx.createRadialGradient(
+            planet.x - 18,
+            planet.y - 20,
+            4,
+            planet.x,
+            planet.y,
+            planet.radius
+        );
+
+    gradient.addColorStop(
+        0,
+        "#a5c9ff"
+    );
+
+    gradient.addColorStop(
+        .35,
+        "#5279cc"
+    );
+
+    gradient.addColorStop(
+        1,
+        "#18264c"
+    );
+
+    ctx.fillStyle = gradient;
+
+    ctx.beginPath();
+    ctx.arc(
+        planet.x,
+        planet.y,
+        planet.radius,
+        0,
+        Math.PI * 2
+    );
+
+    ctx.fill();
+
+    ctx.strokeStyle =
+        "rgba(255,255,255,.16)";
+
+    ctx.lineWidth = 1;
+
+    ctx.stroke();
+}
+
+function animate() {
+    ctx.clearRect(0, 0, width, height);
+
+    drawStars();
+    drawPlanet();
+
+    if (!paused) {
+        for (const body of bodies) {
+            body.update();
+        }
+
+        bodies =
+            bodies.filter(
+                body => body.life > 0
+            );
+    }
+
+    for (const body of bodies) {
+        body.draw();
+    }
+
+    counter.textContent =
+        `${bodies.length} object${bodies.length === 1 ? "" : "s"}`;
+
+    requestAnimationFrame(animate);
+}
+
+canvas.addEventListener(
+    "pointerdown",
+    event => {
+        const dx =
+            event.clientX - planet.x;
+
+        const dy =
+            event.clientY - planet.y;
+
+        const distance =
+            Math.hypot(dx, dy);
+
+        if (
+            distance >
+            planet.radius + 10
+        ) {
+            bodies.push(
+                new Body(
+                    event.clientX,
+                    event.clientY
+                )
+            );
+        }
+    }
+);
+
+window.addEventListener(
+    "keydown",
+    event => {
+        if (
+            event.key === "r" ||
+            event.key === "R"
+        ) {
+            bodies = [];
+        }
+
+        if (event.code === "Space") {
+            event.preventDefault();
+            paused = !paused;
+        }
+    }
+);
+
+animate();
+</script>
+
+</body>
+</html>
